@@ -1,0 +1,274 @@
+iRNA-seq Analysis Pipeline Feb-2014
+
+1.Create a directory for sequences
+Data/Jen_Tsuzynski/
+	Data/ # directory which contains fastq files
+		Aldh-CSTIP_1.fastq
+		Aldh-CSTIP_2.fastq
+		Aldh-DCIP_1.fastq
+		Aldh-DCIP_2.fastq
+
+Note:  For each paired end sequences, use _1 and _2 at the end of file name.
+
+2.Running STAR
+
+/u/home/eeskin/charlesb/PIPELINE/RNA-seq-0.1.3/rnaseq_qsub_STAR.sh /u/home/eeskin/charlesb/lib/STAR_2.1.4a/Mouse_mm9
+/u/home/eeskin/rkawaguc/Data/Jen_Tsuzynski/Aldh-CSTIP /u/home/eeskin/rkawaguc/Data/Jen_Tsuzynski
+
+Note: Run STAR in the Jen_Tsuzynski directory (Not Data directory)
+
+Once it starts, it will create two directories in the working dr
+
+Data/Jen_Tsuzynski/
+	Data
+	Aldh-CSTIP
+	Aldh-DCIP
+
+3. Copy getCountsHTSeq.sh from ~/charlesb/PIPELINE/RNA-seq-0.1.3/bin to your RNA-seq tool directory
+
+4. Type
+>module load python
+
+5. Run a script using following format in the sample directory where Aligned.out.sam is present (the red part is reference gtf file)
+
+>qsub /u/home/eeskin/rkawaguc/RNAseq-tools/getCountsHTSeq.sh /u/home/eeskin/charlesb/Data/mm9/refFlat/mm9.gtf  Aldh-CSTIP
+
+6. Output file will be created as Aldh-CSTIP.count.txt
+
+
+
+
+
+
+
+
+ 
+Reserve Interactive node in the morning when you come in
+> qrsh -l i,h_data=4G,h_rt=12:00:00 -pe shared 4
+
+> for i in `myjobs | grep Eqw |awk '{print $1}'`;do qmod -c $i;done
+
+Check size of all directory
+>du –sh *
+
+Check quota
+>df –h
+
+Count the number of files in the directory
+>ls|wc -l
+
+
+
+
+
+
+Batch Run (From Charles March 06,2014) This is done with single-end read run
+
+Create a directory called “Data” inside in the same directory as fastq.gz files
+>mkdir Data
+
+> ls *gz
+> ls *gz | cut -f1,2 -d"_"
+> ls *gz | cut -f1,2 -d"_" | sort | uniq –c
+8 E-4_S12
+8 E-OGD-4hr-1_S20
+8 E-OGD-4hr-2_S21
+8 E-OGD-4hr-3_S22
+8 EYFP-CSS-1_S17
+…
+      
+Create a list of sample name short and unique
+>ls *gz | cut -f1 -d"_" | sort | uniq
+8 E-4
+8 E-OGD-4hr-1
+8 E-OGD-4hr-2
+8 E-OGD-4hr-3
+8 EYFP-CSS-1
+8 EYFP-CSS-2
+8 G-2
+8 G-3
+…
+
+Create a file containing common name but unique 
+>ls *gz | cut -f1 -d"_" | sort | uniq > sample.txt
+>vim sample.txt
+E-4
+E-OGD-4hr-1
+E-OGD-4hr-2
+E-OGD-4hr-3
+EYFP-CSS-1
+EYFP-CSS-2
+G-2
+G-3
+G-4
+G-OGD-4hr-1
+G-OGD-4hr-2
+G-OGD-4hr-3
+
+List all files corresponding to each line in samples.txt (checking)
+>for i in `cat sample.txt`; do ls $i*R1*gz; done
+
+
+Unzip the files and merging them for the same samples (necessary if each sample was run on multiple lanes
+>for i in `cat sample.txt`; do zcat $i*R1*gz > Data/$i\_1.fastq; done
+Repeat this step for reverse seq
+>for i in `cat sample.txt`; do zcat $i*R2*gz > Data/$i\_2.fastq; done
+
+
+#Uncompress the gz files (single read)
+>#for i in /directory2fastqgz/*gz; do zcat $i > `basename $i .gz`;done
+
+Running STAR (mapping to the genome)
+
+>/u/home/eeskin/rkawaguc/RNAseq-tools/rnaseq_qsub_STAR.sh /u/home/eeskin/charlesb/lib/STAR_2.1.4a/Mouse_mm9
+/u/home/eeskin/rkawaguc/Data/Jen_Tsuzynski/Aldh-CSTIP /u/home/eeskin/rkawaguc/Data/Jen_Tsuzynski
+
+Check the summary of STAR results
+> R CMD BATCH /u/home/eeskin/charlesb/PIPELINE/RNA-seq-0.1.3/bin/starSummary.R
+>less starSummary.Rout
+
+ 
+
+Pick random 1000,000 reads  (execute from the Data directory where all fastq files exist)
+
+>module load python
+
+> for i in *.fastq;do qsub -b y -V -cwd python /u/home/eeskin/charlesb/PIPELINE/RNA-seq-0.1.3/bin/getRandomFastq.py $i 1000000;done
+
+note: -b y option is executing binary command
+-V option is to make all variables active 
+
+Check counts for generated files
+
+>cat python.*
+>rm python.*  # clean up log files
+>wc –l rand_1000000_M*
+
+Create base distribution figures (quality score profiles)
+
+> for i in rand_1000000_*fastq; do qsub -b y -cwd -V /u/home/eeskin/charlesb/PIPELINE/RNA-seq-0.1.3/bin/fastqQcOut.py $i; done
+# This should print the number of files generated for Base_stat.txt & Qual_stat.txt 
+> ls *Base_stat.txt|wc -l
+> ls *Qual_stat.txt|wc -l
+
+Running Qc (generate base quality figure)
+
+>R CMD BATCH /u/home/eeskin/charlesb/PIPELINE/RNA-seq-0.1.3/bin/fastQc.R
+
+baseQuality.pdf
+ 
+
+nucleotide.pdf
+ 
+
+
+ 
+Running HTseq (compile all mapped reads to genes) Takes >2h on cluster
+
+>module load python # if new session is started
+>module load samtools
+> for i in `find /u/home/eeskin/rkawaguc/Data/2014-040/ -name Aligned.out.sam`;do pushd `dirname $i`; qsub /u/home/eeskin/charlesb/PIPELINE/RNA-seq-0.1.3/bin/getCountsHTSeq.sh /u/home/eeskin/charlesb/Data/mm9/refFlat/mm9.gtf `dirname $i | xargs -I {} basename {}`;popd;done
+ 
+Note: C-1_S1.count.txt is the one you need. If it is zero size, it is either not completed or had an error. The error.log file contains the list of errors. Don’t need to worry if it has lots of error that it is not aligned to mitochondoria. 
+
+#in case you want to run this script individually (let’s say one sample failed)
+#note: the second argument will be used to label the file name before .count.txt
+>qsub /u/home/eeskin/charlesb/PIPELINE/RNA-seq-0.1.3/bin/getCountsHTSeq.sh /u/home/eeskin/charlesb/Data/mm9/refFlat/mm9.gtf P20-4hr-3_S7
+
+Check to make sure all count.txt files exist and the size is correct
+>find . -name “*.count.txt”
+>find . –name “*.count.txt” –exec wc –l {} +
+ 
+Note: make sure all files have equal sizes
+
+#Combining all data into one file (meataReadCount.xls)
+>mkdir result
+> find . -name "*.count.txt" -exec /u/home/c/charlesb/project/PIPELINE/bin/cjoin.awk {} + > result/metaReadCount.xls
+ 
+
+#open the file in vim, remove the last 5 lines (DO not do this in Excel, you will screw up the lines) If you did, use this command to fix
+>vim metaReadCount.xls
+:/%s/\r/\r/g
+
+#Create random 1M reads from Aligned.out.sam
+>for i in `find $PWD/ -name Aligned.out.sam`;do pushd `dirname $i`;qsub -b y -cwd -V python /u/home/eeskin/charlesb/PIPELINE/RNA-seq-0.1.3/bin/getRandomSamAllHits.py Aligned.out.sam 1000000;popd;done
+ 
+
+#Check to make sure 1000000 reads are selected for each sample
+>for i in `find . -name sample_any_*`;do wc -l $i;done
+ 
+
+Converting sam to bam
+>for i in `find $PWD/ -name sample_any_1000000_Aligned.out.sam`; do pushd ‘dirname $i`; qsub /u/home/eeskin/charlesb/PIPELINE/RNA-seq-0.1.3/bin/sam2bam.sh $i; popd;done
+ 
+
+Creating tables for Chromosomes, gene regions hits etc
+>module load bedtools
+>for i in `find $PWD/ -name sorted.bam`; do pushd `dirname $i`; qsub /u/home/eeskin/charlesb/PIPELINE/RNA-seq-0.1.3/bin/getChrHits.sh $i; qsub /u/home/eeskin/charlesb/PIPELINE/RNA-seq-0.1.3/bin/getHits_N_Mis.sh $i; qsub /u/home/eeskin/charlesb/PIPELINE/RNA-seq-0.1.3/bin/getGeneRegionCounts.sh $i /u/home/eeskin/charlesb/Data/mm9/refFlat; qsub /u/home/eeskin/charlesb/PIPELINE/RNA-seq-0.1.3/bin/getGeneRegionCountsEnsemble.sh $i /u/home/eeskin/charlesb/Data/Ensembl/mus_musculus/NCBIM37.67/bed;popd;done
+ 
+#Note: Make sure you have these 5 files generated
+
+#Check the files by following command (all files have at least # of samples x  4 #bytes)
+>for i in `find . -name ensembl.coverageSum`;do wc -c $i;done; for i in `find . -name sorted_hits.txt`;do wc -c $i;done; for i in `find . -name sorted_mismatch.txt`;do wc -c $i;done; for i in `find . -name sorted_chrHits.txt`;do wc -c $i;done;for i in `find . -name refFlat.coverageSum`;do wc -c $i;done; 
+ 
+
+Copy the header of metaReadCounts.xls, create mismatch and hitcounts.xls etc
+>head -1 result/metaReadCount.xls >result/mismatch.xls;head -1 result/metaReadCount.xls >result/hitCount.xls; 
+
+>find . -name sorted_chrHits.txt -exec /u/home/eeskin/charlesb/PIPELINE/bin/cjoin.awk {} + >> result/chrHits.xls;find . -name sorted_mismatch.txt -exec /u/home/eeskin/charlesb/PIPELINE/bin/cjoin.awk {} + >> result/mismatch.xls;find . -name sorted_hits.txt -exec /u/home/eeskin/charlesb/PIPELINE/bin/cjoin.awk {} + >> result/hitCount.xls;find . -name refFlat.coverageSum -exec /u/home/eeskin/charlesb/PIPELINE/bin/cjoin.awk {} + >> result/coverage.xls ;find . -name ensembl.coverageSum -exec /u/home/eeskin/charlesb/PIPELINE/bin/cjoin.awk {} + >> result/coverage2.xls     
+ 
+ 
+
+Now all data creation is done there should be 8 files in Results directory
+>ls results/
+ 
+
+Creating figures for these 7 excel files
+>module load R
+>mv starSummary.* ../results
+>R CMD BATCH /u/home/eeskin/rkawaguc/RNAseq-tools/compare.R
+
+ 
+Gene Ontology (GO) Analysis (Run on the Cluster)
+
+1. Draw a heatmap and create a report spread sheet for GO
+>R CMD BATCH GeneAnswer.R
+
+2. The following command will create GO report file in excel 
+>for i in SignificantGenes*.xls; do ./GeneOntologyReport.sh $i;done
+
+3.Create a bar graphs 
+>R CMD BATCH GO_bar.sh 
+
+Making Report using LateX
+
+1.Move all heatmap.pdf to the LateX file directory (all pdf from qcCluster.R should be there too). Change file name Gene_Ontology……gobar.pdf to gobar1.pdf to gobar7.pdf
+
+2.Open Latex file (.tex)
+
+3.Command+S and command+T
+
+
+GO Analysis for WGCNA modules
+
+Following files in one directory
+1)	entrez-annot.csv
+2)	RNA-seq data.csv
+3)	Unsigned_network.RData (from WGCNA)
+4)	GeneOntologyReport.sh
+5)	GO_analysis.R
+6)	GO_bar.sh
+
+Note: 1) fixed file. Copy from Gunnar/CST/WGCNA
+	2) variable file. You only need to have gene (name) in the first column
+	3) copy the file if it is not place in the same directory
+
+Change line 16 to selected modules that you want to analyze
+
+Then
+>R CMD BATCH GO_analysis.R
+>for I in SignificantGenes*xls; do ./GeneOntologyReport.sh $i;done
+>R CMD BATCH GO_bar.sh
+
+
+
